@@ -1,5 +1,5 @@
 #include "gl_renderer.h"
-#include "game_lib.h"
+#include "render_interface.h"
 
 // To load PNG files
 #define STB_IMAGE_IMPLEMENTATION
@@ -17,6 +17,8 @@ struct GLContext
 {
     GLuint programID;
     GLuint textureID;
+    GLuint transformSBOID;
+    GLuint screenSizeID;
 };
 
 // #################################################### //
@@ -137,6 +139,18 @@ bool gl_init(BumpAllocator *transientStorage)
         stbi_image_free(data);
     }
 
+    // Transform Storage Buffer
+    {
+        glGenBuffers(1, &glContext.transformSBOID);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, glContext.transformSBOID);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(Transform) * MAX_TRANSFORMS, renderData.transforms, GL_DYNAMIC_DRAW);
+    }
+
+    // Uniforms
+    {
+        glContext.screenSizeID = glGetUniformLocation(glContext.programID, "screenSize");
+    }
+
     glEnable(GL_FRAMEBUFFER_SRGB);
     glDisable(0x809D); // Disable multisampling
 
@@ -156,5 +170,17 @@ void gl_render()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glViewport(0, 0, input.screenSizeX, input.screenSizeY);
 
-    glDrawArrays(GL_TRIANGLES, 0, 6);
+    // Copy screen size to the GPU
+    Vec2 screenSize = {(float)input.screenSizeX, (float)input.screenSizeY};
+    glUniform2fv(glContext.screenSizeID, 1, &screenSize.x);
+
+    // Opaque Objects
+    {
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(Transform) * renderData.transformCount, renderData.transforms);
+
+        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, renderData.transformCount);
+
+        // Reset for next frame
+        renderData.transformCount = 0;
+    }
 }
